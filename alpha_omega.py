@@ -59,8 +59,8 @@ def compute_alpha_omega(
 
 def compute_tail_risk_overlay(
     prices: pd.Series,
-    window: int = 63,
-    threshold_quantile: float = 0.95
+    window: int = 252,  # Increased from 63 to 252 for more data
+    threshold_quantile: float = 0.90  # Lowered from 0.95 to get more exceedances
 ) -> Dict:
     """
     Compute EVT tail risk overlay for crossover signals.
@@ -68,55 +68,75 @@ def compute_tail_risk_overlay(
     Returns a full tail risk assessment including the tail index (xi).
     """
     returns = compute_log_returns(prices)
-    if len(returns) < window + 20:
+    
+    # Use a longer window for EVT
+    evt_window = min(window * 2, len(returns) - 1)
+    if len(returns) < evt_window + 20:
         return {
-            "tail_index": np.nan,
+            "tail_index": 0.0,  # Default to moderate tail
             "risk_factor": 1.0,
             "threshold": np.nan,
             "exceedances": 0,
             "sigma": np.nan,
-            "xi": np.nan
+            "xi": 0.0
         }
     
-    # Use recent window for tail risk
-    recent_returns = returns.iloc[-window:]
+    # Use recent data for tail risk
+    recent_returns = returns.iloc[-evt_window:]
     
     # Fit GPD to negative returns (downside risk)
     neg_returns = -recent_returns.values
     neg_returns = neg_returns[neg_returns > 0]
     
-    if len(neg_returns) < 20:
+    if len(neg_returns) < 50:
         return {
-            "tail_index": np.nan,
+            "tail_index": 0.0,
             "risk_factor": 1.0,
             "threshold": np.nan,
             "exceedances": len(neg_returns),
             "sigma": np.nan,
-            "xi": np.nan
+            "xi": 0.0
         }
     
     threshold = np.quantile(neg_returns, threshold_quantile)
     exceedances = neg_returns[neg_returns > threshold] - threshold
     
-    if len(exceedances) < 10:
+    # If we have at least 5 exceedances, try to fit
+    if len(exceedances) < 5:
+        # Use a fallback: estimate tail index from the data
+        # Use Hill estimator as fallback
+        sorted_neg = np.sort(neg_returns)[::-1]
+        k = min(20, len(sorted_neg) // 10)
+        if k > 5:
+            log_returns_neg = np.log(sorted_neg[:k] / sorted_neg[k])
+            hill_xi = np.mean(log_returns_neg)
+            return {
+                "tail_index": max(0.0, min(0.5, hill_xi)),  # Clamp between 0 and 0.5
+                "risk_factor": 1.0 - 0.3 * max(0, min(1, hill_xi / 0.5)),
+                "threshold": threshold,
+                "exceedances": len(exceedances),
+                "sigma": np.std(exceedances) if len(exceedances) > 0 else np.nan,
+                "xi": hill_xi
+            }
         return {
-            "tail_index": np.nan,
+            "tail_index": 0.0,
             "risk_factor": 1.0,
             "threshold": threshold,
             "exceedances": len(exceedances),
             "sigma": np.nan,
-            "xi": np.nan
+            "xi": 0.0
         }
     
     try:
         xi, loc, sigma = genpareto.fit(exceedances, floc=0)
         
+        # Clamp xi to reasonable values
+        if np.isnan(xi) or np.isinf(xi):
+            xi = 0.0
+        xi = max(-0.5, min(0.8, xi))  # Clamp between -0.5 and 0.8
+        
         # Risk factor: higher tail index = higher risk = reduce signal confidence
-        # Xi > 0.3 = heavy tail → reduce signal by 30%
-        # Xi > 0.5 = very heavy tail → reduce signal by 50%
-        if np.isnan(xi):
-            risk_factor = 1.0
-        elif xi > 0.5:
+        if xi > 0.5:
             risk_factor = 0.5
         elif xi > 0.3:
             risk_factor = 0.7
@@ -126,21 +146,38 @@ def compute_tail_risk_overlay(
             risk_factor = 1.0
         
         return {
-            "tail_index": xi,  # This is the key metric we want
-            "xi": xi,          # Keep as backup
+            "tail_index": xi,
+            "xi": xi,
             "risk_factor": risk_factor,
             "threshold": threshold,
             "exceedances": len(exceedances),
             "sigma": sigma
         }
-    except Exception as e:
+    except Exception:
+        # Fallback: estimate using moments
+        if len(exceedances) > 5:
+            # Use moment estimator for GPD
+            mean_ex = np.mean(exceedances)
+            var_ex = np.var(exceedances)
+            if mean_ex > 0 and var_ex > 0:
+                xi_est = 0.5 * (1 - (mean_ex ** 2) / var_ex)
+                xi_est = max(-0.5, min(0.8, xi_est))
+                return {
+                    "tail_index": xi_est,
+                    "risk_factor": 1.0 - 0.3 * max(0, min(1, xi_est / 0.5)),
+                    "threshold": threshold,
+                    "exceedances": len(exceedances),
+                    "sigma": np.std(exceedances),
+                    "xi": xi_est
+                }
+        
         return {
-            "tail_index": np.nan,
+            "tail_index": 0.0,
             "risk_factor": 1.0,
             "threshold": threshold,
             "exceedances": len(exceedances),
             "sigma": np.nan,
-            "xi": np.nan
+            "xi": 0.0
         }
 
 
@@ -148,31 +185,20 @@ def compute_crossover_signal(
     prices: pd.Series,
     alpha_window: int = 252,
     omega_window: int = 63,
-    evt_threshold: float = 0.95
+    evt_threshold: float = 0.90  # Lowered from 0.95
 ) -> Dict:
     """
     Complete crossover analysis with EVT overlay.
-    
-    Returns:
-        alpha: Latest Alpha value
-        omega: Latest Omega value
-        crossover: Omega - Alpha
-        z_score: Standardized crossover across universe
-        tail_index: EVT tail index (xi)
-        tail_risk: Risk factor (1.0 = no reduction, 0.5 = 50% reduction)
-        signal: Adjusted signal strength
-        action: BUY/SELL/HOLD recommendation
-        exceedances: Number of exceedances for EVT
     """
     alpha, omega, crossover = compute_alpha_omega(prices, alpha_window, omega_window)
     
     if crossover.empty or len(crossover) == 0:
         return {
-            "alpha": np.nan,
-            "omega": np.nan,
-            "crossover": np.nan,
-            "z_score": np.nan,
-            "tail_index": np.nan,
+            "alpha": 0.0,
+            "omega": 0.0,
+            "crossover": 0.0,
+            "z_score": 0.0,
+            "tail_index": 0.0,
             "tail_risk": 1.0,
             "signal": 0.0,
             "action": "INSUFFICIENT DATA",
@@ -184,20 +210,20 @@ def compute_crossover_signal(
     latest_omega = omega.iloc[-1] if not pd.isna(omega.iloc[-1]) else 0
     latest_crossover = crossover.iloc[-1] if not pd.isna(crossover.iloc[-1]) else 0
     
-    # Compute tail risk overlay (using a longer window for stability)
+    # Compute tail risk overlay using a longer window
     tail_risk = compute_tail_risk_overlay(
         prices, 
-        window=min(omega_window * 2, 252), 
+        window=252,  # Use 252 days for EVT
         threshold_quantile=evt_threshold
     )
     
-    # Get tail index - ensure it's a float, not None
-    tail_index = tail_risk.get("tail_index", np.nan)
-    if tail_index is None:
-        tail_index = np.nan
+    # Get tail index - ensure it's a float
+    tail_index = tail_risk.get("tail_index", 0.0)
+    if tail_index is None or np.isnan(tail_index):
+        tail_index = 0.0
     
     risk_factor = tail_risk.get("risk_factor", 1.0)
-    if risk_factor is None:
+    if risk_factor is None or np.isnan(risk_factor):
         risk_factor = 1.0
     
     # Signal = crossover * risk_factor (adjust for tail risk)
@@ -215,8 +241,8 @@ def compute_crossover_signal(
         "alpha": latest_alpha,
         "omega": latest_omega,
         "crossover": latest_crossover,
-        "z_score": np.nan,  # Will be set by trainer
-        "tail_index": tail_index,  # The actual tail index (xi)
+        "z_score": 0.0,  # Will be set by trainer
+        "tail_index": tail_index,
         "tail_risk": risk_factor,
         "signal": signal,
         "action": action,
