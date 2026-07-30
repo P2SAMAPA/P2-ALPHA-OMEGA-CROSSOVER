@@ -1,0 +1,38 @@
+name: Daily Alpha-Omega Run
+
+on:
+  schedule:
+    - cron: '10 00 * * 1-6'
+  workflow_dispatch:
+
+jobs:
+  run-alpha-omega:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          
+      - name: Run Alpha-Omega engine
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python trainer.py
+          
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-omega-results
+          path: |
+            alpha_omega_*.json
+            alpha_omega_breakdown_*.json
