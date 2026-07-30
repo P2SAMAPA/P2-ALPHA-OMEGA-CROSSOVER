@@ -27,13 +27,13 @@ UNIVERSES = {
     ],
     "EQUITY_SECTORS": [
         "SPY", "QQQ", "XLK", "XLF", "XLE", "XLV", "XLI",
-        "XLY", "XLP", "XLU", "GDX", "XME", "IWF", "XSD",
+        "XLY", "XLP", "XLU", "GDX", "XME", "IWF", "XSD", "SOXX", "SMH", "URA",
         "XBI", "IWM", "IWD", "IWO", "XLB", "XLRE",
     ],
     "COMBINED": [
         "TLT", "VCIT", "LQD", "HYG", "VNQ", "GLD", "SLV",
         "SPY", "QQQ", "XLK", "XLF", "XLE", "XLV", "XLI",
-        "XLY", "XLP", "XLU", "GDX", "XME", "IWF", "XSD",
+        "XLY", "XLP", "XLU", "GDX", "XME", "IWF", "XSD", "SOXX", "SMH", "URA",
         "XBI", "IWM", "IWD", "IWO", "XLB", "XLRE",
     ],
 }
