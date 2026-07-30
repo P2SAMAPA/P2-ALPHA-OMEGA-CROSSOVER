@@ -188,6 +188,33 @@ def get_emoji(composite_score):
     else:
         return "🔴"
 
+def color_composite_row(row):
+    """Apply color based on composite score."""
+    comp = row['Composite Score']
+    if comp > 0.3:
+        return ['background-color: #27ae60; color: white;'] * len(row)
+    elif comp > 0:
+        return ['background-color: #f1c40f; color: black;'] * len(row)
+    elif comp > -0.3:
+        return ['background-color: #e67e22; color: white;'] * len(row)
+    else:
+        return ['background-color: #e74c3c; color: white;'] * len(row)
+
+def color_rank_row(row):
+    """Apply color based on rank."""
+    rank = row['Rank']
+    if rank <= 3:
+        return ['background-color: #27ae60; color: white;'] * len(row)
+    elif rank <= 6:
+        return ['background-color: #2ecc71; color: white;'] * len(row)
+    elif rank <= 10:
+        return ['background-color: #f1c40f; color: black;'] * len(row)
+    elif rank <= 15:
+        return ['background-color: #e67e22; color: white;'] * len(row)
+    else:
+        return ['background-color: #e74c3c; color: white;'] * len(row)
+
+
 @st.cache_data(ttl=3600)
 def list_repo_files():
     if not HF_TOKEN:
@@ -373,21 +400,10 @@ with tab1:
         with st.expander(f"📋 Full Composite Ranking — {label}"):
             rows = []
             for idx, etf in enumerate(ranked_etfs):
-                # Determine row color
-                comp = etf["composite"]
-                if comp > 0.3:
-                    color = "#27ae60"  # Green
-                elif comp > 0:
-                    color = "#f1c40f"  # Yellow
-                elif comp > -0.3:
-                    color = "#e67e22"  # Orange
-                else:
-                    color = "#e74c3c"  # Red
-                
                 rows.append({
                     "Rank": idx + 1,
                     "ETF": etf["ticker"],
-                    "Composite Score": round(comp, 4),
+                    "Composite Score": round(etf["composite"], 4),
                     "z-score": round(etf["z_score"], 4),
                     "Tail Index (ξ)": round(etf["tail_index"], 4),
                     "Tail Risk": f"{etf['tail_risk']*100:.0f}%",
@@ -399,32 +415,39 @@ with tab1:
             
             df_rank = pd.DataFrame(rows)
             
-            # Apply color formatting
-            def color_rank(val):
-                if isinstance(val, (int, float)):
-                    if val <= 3:
-                        return 'background-color: #27ae60; color: white;'
-                    elif val <= 6:
-                        return 'background-color: #2ecc71; color: white;'
-                    elif val <= 10:
-                        return 'background-color: #f1c40f; color: black;'
-                    elif val <= 15:
-                        return 'background-color: #e67e22; color: white;'
-                    else:
-                        return 'background-color: #e74c3c; color: white;'
-                return ''
+            # Apply color formatting using map
+            styled_df = df_rank.style.map(
+                lambda x: 'background-color: #27ae60; color: white;' if isinstance(x, (int, float)) and x <= 3 else '',
+                subset=['Rank']
+            ).map(
+                lambda x: 'background-color: #2ecc71; color: white;' if isinstance(x, (int, float)) and 4 <= x <= 6 else '',
+                subset=['Rank']
+            ).map(
+                lambda x: 'background-color: #f1c40f; color: black;' if isinstance(x, (int, float)) and 7 <= x <= 10 else '',
+                subset=['Rank']
+            ).map(
+                lambda x: 'background-color: #e67e22; color: white;' if isinstance(x, (int, float)) and 11 <= x <= 15 else '',
+                subset=['Rank']
+            ).map(
+                lambda x: 'background-color: #e74c3c; color: white;' if isinstance(x, (int, float)) and x > 15 else '',
+                subset=['Rank']
+            )
             
-            def color_composite(val):
-                if val > 0.3:
-                    return 'background-color: #27ae60; color: white;'
-                elif val > 0:
-                    return 'background-color: #f1c40f; color: black;'
-                elif val > -0.3:
-                    return 'background-color: #e67e22; color: white;'
-                else:
-                    return 'background-color: #e74c3c; color: white;'
+            # Color composite column
+            styled_df = styled_df.map(
+                lambda x: 'background-color: #27ae60; color: white;' if isinstance(x, (int, float)) and x > 0.3 else '',
+                subset=['Composite Score']
+            ).map(
+                lambda x: 'background-color: #f1c40f; color: black;' if isinstance(x, (int, float)) and 0 < x <= 0.3 else '',
+                subset=['Composite Score']
+            ).map(
+                lambda x: 'background-color: #e67e22; color: white;' if isinstance(x, (int, float)) and -0.3 < x <= 0 else '',
+                subset=['Composite Score']
+            ).map(
+                lambda x: 'background-color: #e74c3c; color: white;' if isinstance(x, (int, float)) and x <= -0.3 else '',
+                subset=['Composite Score']
+            )
             
-            styled_df = df_rank.style.applymap(color_rank, subset=['Rank']).applymap(color_composite, subset=['Composite Score'])
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
             
             # Summary stats
@@ -485,19 +508,20 @@ with tab2:
         df = pd.DataFrame(rows).sort_values("Composite Score", ascending=False)
         
         # Color formatting for composite
-        def color_composite_col(val):
-            if isinstance(val, (int, float)):
-                if val > 0.3:
-                    return 'background-color: #27ae60; color: white;'
-                elif val > 0:
-                    return 'background-color: #f1c40f; color: black;'
-                elif val > -0.3:
-                    return 'background-color: #e67e22; color: white;'
-                else:
-                    return 'background-color: #e74c3c; color: white;'
-            return ''
+        styled_df = df.style.map(
+            lambda x: 'background-color: #27ae60; color: white;' if isinstance(x, (int, float)) and x > 0.3 else '',
+            subset=['Composite Score']
+        ).map(
+            lambda x: 'background-color: #f1c40f; color: black;' if isinstance(x, (int, float)) and 0 < x <= 0.3 else '',
+            subset=['Composite Score']
+        ).map(
+            lambda x: 'background-color: #e67e22; color: white;' if isinstance(x, (int, float)) and -0.3 < x <= 0 else '',
+            subset=['Composite Score']
+        ).map(
+            lambda x: 'background-color: #e74c3c; color: white;' if isinstance(x, (int, float)) and x <= -0.3 else '',
+            subset=['Composite Score']
+        )
         
-        styled_df = df.style.applymap(color_composite_col, subset=['Composite Score'])
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         st.divider()
 
