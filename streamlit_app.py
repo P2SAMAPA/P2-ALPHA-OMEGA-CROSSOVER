@@ -5,6 +5,7 @@ from huggingface_hub import HfApi
 from datetime import date, timedelta
 import config
 import os
+import numpy as np
 
 st.set_page_config(page_title="Alpha-Omega Crossover Engine", layout="wide")
 
@@ -38,6 +39,14 @@ st.markdown("""
             font-weight:700;color:white}
 .badge-hold{background:#f39c12;border-radius:6px;padding:2px 12px;font-size:0.75rem;
             font-weight:700;color:white}
+.tail-badge{background:#8e44ad;border-radius:6px;padding:2px 8px;font-size:0.7rem;
+            font-weight:700;color:white}
+.tail-badge-heavy{background:#c0392b;border-radius:6px;padding:2px 8px;font-size:0.7rem;
+                  font-weight:700;color:white}
+.tail-badge-moderate{background:#f39c12;border-radius:6px;padding:2px 8px;font-size:0.7rem;
+                     font-weight:700;color:white}
+.tail-badge-thin{background:#27ae60;border-radius:6px;padding:2px 8px;font-size:0.7rem;
+                 font-weight:700;color:white}
 </style>
 """, unsafe_allow_html=True)
 
@@ -73,6 +82,30 @@ def action_badge(action: str) -> str:
         return f'<span class="badge-sell">🔴 {action}</span>'
     else:
         return f'<span class="badge-hold">🟡 {action}</span>'
+
+def tail_badge(xi) -> str:
+    if xi is None or pd.isna(xi) or np.isnan(xi):
+        return f'<span class="tail-badge">ξ = N/A</span>'
+    if xi > 0.5:
+        return f'<span class="tail-badge-heavy">ξ = {xi:.3f} (VERY HEAVY)</span>'
+    elif xi > 0.3:
+        return f'<span class="tail-badge-heavy">ξ = {xi:.3f} (HEAVY)</span>'
+    elif xi > 0.0:
+        return f'<span class="tail-badge-moderate">ξ = {xi:.3f} (MODERATE)</span>'
+    else:
+        return f'<span class="tail-badge-thin">ξ = {xi:.3f} (THIN)</span>'
+
+def safe_float(val, default=0.0):
+    """Safely convert to float, handling None and NaN."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        if np.isnan(f):
+            return default
+        return f
+    except (ValueError, TypeError):
+        return default
 
 
 @st.cache_data(ttl=3600)
@@ -195,12 +228,18 @@ with tab1:
             cols = st.columns(3)
             for idx, item in enumerate(top_buys[:3]):
                 ticker = item["ticker"]
-                z_score = item["z_score"]
+                z_score = safe_float(item.get("z_score", 0))
                 full_data = uni_data.get("full_scores", {}).get(ticker, {})
                 action = full_data.get("action", "HOLD")
-                alpha = full_data.get("alpha", 0)
-                omega = full_data.get("omega", 0)
-                tail_risk = full_data.get("tail_risk", 1.0)
+                alpha = safe_float(full_data.get("alpha", 0))
+                omega = safe_float(full_data.get("omega", 0))
+                tail_index = full_data.get("tail_index")
+                if tail_index is None:
+                    tail_index = np.nan
+                tail_index = safe_float(tail_index, np.nan)
+                tail_risk = safe_float(full_data.get("tail_risk", 1.0))
+                
+                tail_badge_html = tail_badge(tail_index)
                 
                 with cols[idx]:
                     st.markdown(f"""
@@ -209,6 +248,7 @@ with tab1:
   <div class="score">z-score = {z_score:+.3f}</div>
   <div class="score">{action_badge(action)}</div>
   <div class="score">α = {alpha:.3f} | ω = {omega:.3f}</div>
+  <div class="score">{tail_badge_html}</div>
   <div class="score">Tail Risk = {(1-tail_risk)*100:.0f}% reduction</div>
   <div class="next-day">📅 {ntd}</div>
 </div>
@@ -222,11 +262,17 @@ with tab1:
             cols = st.columns(3)
             for idx, item in enumerate(top_sells[:3]):
                 ticker = item["ticker"]
-                z_score = item["z_score"]
+                z_score = safe_float(item.get("z_score", 0))
                 full_data = uni_data.get("full_scores", {}).get(ticker, {})
                 action = full_data.get("action", "HOLD")
-                alpha = full_data.get("alpha", 0)
-                omega = full_data.get("omega", 0)
+                alpha = safe_float(full_data.get("alpha", 0))
+                omega = safe_float(full_data.get("omega", 0))
+                tail_index = full_data.get("tail_index")
+                if tail_index is None:
+                    tail_index = np.nan
+                tail_index = safe_float(tail_index, np.nan)
+                
+                tail_badge_html = tail_badge(tail_index)
                 
                 with cols[idx]:
                     st.markdown(f"""
@@ -235,6 +281,7 @@ with tab1:
   <div class="score">z-score = {z_score:+.3f}</div>
   <div class="score">{action_badge(action)}</div>
   <div class="score">α = {alpha:.3f} | ω = {omega:.3f}</div>
+  <div class="score">{tail_badge_html}</div>
   <div class="next-day">📅 {ntd}</div>
 </div>
 """, unsafe_allow_html=True)
@@ -247,13 +294,16 @@ with tab1:
             if full:
                 rows = []
                 for t, info in full.items():
+                    tail_idx = info.get("tail_index")
+                    if tail_idx is None:
+                        tail_idx = np.nan
                     rows.append({
                         "ETF": t,
-                        "z-score": round(info.get("z_score", 0), 4),
-                        "Alpha": round(info.get("alpha", 0), 4),
-                        "Omega": round(info.get("omega", 0), 4),
-                        "Crossover": round(info.get("crossover", 0), 4),
-                        "Tail Index": round(info.get("tail_index", 0), 4),
+                        "z-score": round(safe_float(info.get("z_score", 0)), 4),
+                        "Alpha": round(safe_float(info.get("alpha", 0)), 4),
+                        "Omega": round(safe_float(info.get("omega", 0)), 4),
+                        "Crossover": round(safe_float(info.get("crossover", 0)), 4),
+                        "Tail Index (ξ)": round(safe_float(tail_idx, np.nan), 4) if not np.isnan(safe_float(tail_idx, np.nan)) else "N/A",
                         "Action": info.get("action", "HOLD")
                     })
                 df_rank = pd.DataFrame(rows).sort_values("z-score", ascending=False)
@@ -287,14 +337,18 @@ with tab2:
 
         rows = []
         for item in ranking:
+            tail_idx = item.get("tail_index")
+            if tail_idx is None:
+                tail_idx = np.nan
             rows.append({
                 "ETF": item.get("ticker", ""),
-                "z-score": round(item.get("z_score", 0), 4),
-                "Alpha (252d)": round(item.get("alpha", 0), 4),
-                "Omega (63d)": round(item.get("omega", 0), 4),
-                "Crossover": round(item.get("crossover", 0), 4),
-                "Tail Index": round(item.get("tail_index", 0), 4),
-                "Tail Risk": f"{item.get('tail_risk', 1.0)*100:.0f}%",
+                "z-score": round(safe_float(item.get("z_score", 0)), 4),
+                "Alpha (252d)": round(safe_float(item.get("alpha", 0)), 4),
+                "Omega (63d)": round(safe_float(item.get("omega", 0)), 4),
+                "Crossover": round(safe_float(item.get("crossover", 0)), 4),
+                "Tail Index (ξ)": round(safe_float(tail_idx, np.nan), 4) if not np.isnan(safe_float(tail_idx, np.nan)) else "N/A",
+                "Tail Risk": f"{safe_float(item.get('tail_risk', 1.0))*100:.0f}%",
+                "Exceedances": item.get("exceedances", 0),
                 "Action": item.get("action", "HOLD")
             })
 
