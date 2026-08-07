@@ -2,7 +2,7 @@ name: Daily Alpha-Omega Run
 
 on:
   schedule:
-    - cron: '10 23 * * 1-6'
+    - cron: '30 23 * * 1-6'
   workflow_dispatch:
 
 jobs:
